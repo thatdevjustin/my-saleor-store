@@ -2,18 +2,12 @@
 
 import { gql, useQuery } from "@apollo/client";
 import Link from "next/link";
-import {
-  Card,
-  CardHeader,
-  CardContent,
-  CardTitle
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 
-// GraphQL query: fetch first 12 products from default channel
 const GET_PRODUCTS = gql`
-  query GetProducts($channel: String!) {
-    products(first: 12, channel: $channel) {
+  query GetProducts($channel: String!, $first: Int!, $after: String) {
+    products(first: $first, after: $after, channel: $channel) {
       edges {
         node {
           id
@@ -34,28 +28,57 @@ const GET_PRODUCTS = gql`
           }
         }
       }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `;
 
 export default function HomePage() {
-  const { loading, error, data } = useQuery(GET_PRODUCTS, {
-    variables: { channel: "default-channel" },
+  const firstCount = 12;
+  const { loading, error, data, fetchMore } = useQuery(GET_PRODUCTS, {
+    variables: { channel: "default-channel", first: firstCount, after: null },
+    notifyOnNetworkStatusChange: true,
   });
 
-  if (loading) {
+  if (loading && !data) {
     return <p className="text-gray-500">Loading products...</p>;
   }
   if (error) {
     return <p className="text-red-500">Error: {error.message}</p>;
   }
 
-  const products = data?.products?.edges?.map((edge: any) => edge.node) || [];
+  // Extract products and pagination info from the query response.
+  const products = data.products.edges.map((edge: any) => edge.node);
+  const { hasNextPage, endCursor } = data.products.pageInfo;
+
+  const handleLoadMore = () => {
+    fetchMore({
+      variables: {
+        after: endCursor,
+      },
+      updateQuery: (prevResult: any, { fetchMoreResult }: any) => {
+        if (!fetchMoreResult) return prevResult;
+        return {
+          products: {
+            __typename: prevResult.products.__typename,
+            edges: [
+              ...prevResult.products.edges,
+              ...fetchMoreResult.products.edges,
+            ],
+            pageInfo: fetchMoreResult.products.pageInfo,
+          },
+        };
+      },
+    });
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Our Products</h1>
-      {/* Responsive grid container */}
+      {/* Responsive grid: 1 column on mobile, 2 on small, 3 on medium, 4 on extra-large */}
       <div className="grid grid-cols-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
         {products.map((product: any) => (
           <div key={product.id} className="w-full">
@@ -89,6 +112,13 @@ export default function HomePage() {
           </div>
         ))}
       </div>
+      {hasNextPage && (
+        <div className="mt-8 flex justify-center">
+          <Button onClick={handleLoadMore} variant="default">
+            Load More
+          </Button>
+        </div>
+      )}
       {/* Dummy element to force generation of responsive classes */}
       <div className="hidden sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6"></div>
     </div>
